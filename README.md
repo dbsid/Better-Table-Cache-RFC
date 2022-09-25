@@ -25,7 +25,7 @@ ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsi
 ### sysbench oltp_point_select 性能回退
 sysbench `olt_point_select` 场景，用上缓存表之后性能回退，因为 auto commit 下模式，缓存表没有 fastpath 优化，还需要取 tso。非缓存表模式，存在 fast path 优化，不需要获取 tso.
 
-![](/images/write_latency.png)
+![](/images/point-get-fast-path.png)
 
 
 ## 本次 Hathathon 的目标
