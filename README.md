@@ -6,6 +6,9 @@
 - [zyguan](https://github.com/zyguan): 开发工程师
 - [Lobshunter](https://github.com/Lobshunter): 开发工程师
 
+## 项目介绍
+提升缓存表在易用性、性能方面的用户体验
+
 ## 缓存表介绍
 > TiDB 在 v6.0.0 版本中引入了缓存表功能。该功能适用于频繁被访问且很少被修改的热点小表，即把整张表的数据加载到 TiDB 服务器的内存中，直接从内存中获取表数据，避免从 TiKV 获取表数据，从而提升读性能。
 
@@ -19,8 +22,11 @@
 ### 缓存表写延迟过高
 默认 lease 机制导致导致写延迟默认最长 3 秒
 
-ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsight 网页查询时，会更新 `cached_table_cache` 表中的缓存内容。该写操作最长需要等待接近三秒的时间。
+ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsight 网页查询时，会更新 `cached_table_cache` 表中的缓存内容。该写操作最长需要等待三秒，页面卡顿，导致缓存表 在 ossinsight 下线。
+
 ![ossinsigt 应用例子](/images/write_latency.png)
+
+![ossinsigt 慢 SQL 例子](/images/write_latency_slow_query.png)
 
 ### sysbench oltp_point_select 性能回退
 sysbench `olt_point_select` 场景，用上缓存表之后性能回退，因为 auto commit 下模式，缓存表没有 fastpath 优化，还需要取 tso。非缓存表模式，存在 fast path 优化，不需要获取 tso.
