@@ -22,7 +22,7 @@
 ### 缓存表写延迟过高
 默认 lease 机制导致导致写延迟默认最长 3 秒
 
-ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsight 网页查询时，会更新 `cached_table_cache` 表中的缓存内容。该写操作最长需要等待三秒，页面卡顿，导致缓存表 在 ossinsight 下线。
+ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsight 网页查询时，会更新 `cached_table_cache` 表中的缓存内容。该写操作最长需要等待三秒，页面卡顿，导致缓存表在 ossinsight 下线。
 
 ![ossinsigt 应用例子](/images/write_latency.png)
 
