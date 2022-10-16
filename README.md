@@ -29,7 +29,7 @@ ossinsight 上线过缓存表，用以缓存 AP 查询的结果集，在 ossinsi
 ![ossinsigt 慢 SQL 例子](/images/write_latency_slow_query.png)
 
 ### sysbench oltp_point_select 性能回退
-sysbench `olt_point_select` 场景，用上缓存表之后性能回退，因为 auto commit 下模式，缓存表没有 fastpath 优化，还需要取 tso。非缓存表模式，存在 fast path 优化，不需要获取 tso.
+sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为 auto commit 下模式，缓存表没有 fastpath 优化，还需要取 tso。非缓存表模式，存在 fast path 优化，不需要获取 tso.
 
 ![](/images/point-get-fast-path.png)
 
@@ -40,8 +40,7 @@ sysbench `olt_point_select` 场景，用上缓存表之后性能回退，因为 
 增加一个系统变量控制缓存表上限
 
 ### 降低缓存表写操作的延迟
-增加 TiDB 之间直接通信机制，参考 ddl notification 机制 https://github.
-com/pingcap/tidb/issues/32485
+增加 TiDB 之间直接通信机制，参考 ddl notification 机制 https://github.com/pingcap/tidb/issues/32485
 
 ### 缓存表 point get 路径增加 fastpath 优化
 参考非 cache 表，auto-commit 打开的情况下， Point get 路径特殊优化，不拿 tso，使用maxint 作为 tso 去 tikv 读取数据
@@ -55,6 +54,16 @@ com/pingcap/tidb/issues/32485
 
 # TO-DO
 
-## 详细设计 
+## 详细设计
+
+当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
+1. 每次构建缓存数据时需要注册当前缓存数据元信息，并在内存中维护该 cache 最大的 read ts 。
+2. 发起写入时，按原逻辑先写入 intend lock ，然后向各节点发起 invalidate cache 请求。
+3. 各节点收到 invalidate 请求后，删除当前缓存数据，并将最终的 max read ts 更新到元信息。
+4. 写入节点 watch 缓存数据元信息变更，当所有 cache 都更新了 max read ts 后，取得最大 max read ts 。
+5. 写操作可以在最大 max read ts 之后完成提交，并清除所有缓存元数据。
+
+该策略只是对原有实现的补充，如果我们未能在 lease 之前得到最大 max read ts ，将会回退到原来的逻辑，即 lease 过期时也可以写入。
+
 ## Benchmark
 ## FAQ
