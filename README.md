@@ -78,7 +78,7 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 
 该策略只是对原有实现的补充，如果我们未能在 lease 之前得到收到所有 TiDB 节点的 response OK，将会回退到原来的逻辑，即 lease 过期时也可以写入。
 
-没有直接通知其他所有 TiDB 节点，而是先往 table_cache_meta 表注册 TiDB 实例 id 列表信息是为了防止以下情况：
+没有直接通知其他所有 TiDB 节点，而是先往 table_cache_meta 表注册 TiDB 实例 id, 写操作根据列表信息进行通知操作是为了防止以下情况：
 虽然 tidb 是在初始化 domain 时注册 server info 的，确实是先有 server info 才可能有读查询，但感觉不能保证有读查询后 server info 一定在，比如：
 1. tidb1 先收到 read 并初始化了 cache 
 1. tidb2 收到 write 了加上了 intend lock
