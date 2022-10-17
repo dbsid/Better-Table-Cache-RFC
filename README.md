@@ -43,7 +43,7 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 增加 TiDB 之间直接通信机制，参考 ddl notification 机制 https://github.com/pingcap/tidb/issues/32485
 
 ### 「挑战型」缓存表 point get 路径增加 fastpath 优化
-参考非 cache 表，auto-commit 打开的情况下， Point get 路径特殊优化。探索缓存有效的情况下，不拿 tso 直接读缓存是否存在正确性问题已经性能提升幅度。
+参考非 cache 表，auto-commit 打开的情况下， Point get 路径特殊优化。探索缓存有效的情况下，不拿 tso 直接读缓存是否存在正确性问题以及性能提升幅度。
 
 ### 「挑战型」数据变更时实现 delta 更新，不需要全量更新
 缓存表数据变更时，探索新的数据广播和通信机制，缓存表数据更新时，实现 tidb peer 节点缓存表数据 delta 更新
