@@ -70,12 +70,22 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 ## 激进方案
 
 当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
-1. 每次构建缓存数据时需要注册当前缓存数据元信息，并在内存中维护该 cache 最大的 read ts 。
-2. 发起写入时，按原逻辑先写入 intend lock ，然后向各节点发起 invalidate cache 请求。
-3. 各节点收到 invalidate 请求后，删除当前缓存数据，返回 response OK。
-4. 写操作完成提交，并清除所有缓存元数据。
+1. table_cache_meta 表增加一列 ，记录当前 缓存了某个表 TiDB server_id 列表信息
+2. 每次构建缓存数据时需要注册当前缓存数据元信息，除了内存中维护该 cache 最大的 read ts，还需要再 meta 表里注册 当前 TiDB 的 server_id。
+3. 发起写入时，按原逻辑先写入 intend lock ，然后向记录在案的 TiDB 列表各节点发起 invalidate cache 请求。
+4. 各节点收到 invalidate 请求后，删除当前缓存数据，返回 response OK。
+5. 写操作完成提交，并清除所有缓存元数据。
 
 该策略只是对原有实现的补充，如果我们未能在 lease 之前得到收到所有 TiDB 节点的 response OK，将会回退到原来的逻辑，即 lease 过期时也可以写入。
+
+没有直接通知其他所有 TiDB 节点，而是先往 table_cache_meta 表注册 TiDB 实例 id 列表信息是为了防止以下情况：
+虽然 tidb 是在初始化 domain 时注册 server info 的，确实是先有 server info 才可能有读查询，但感觉不能保证有读查询后 server info 一定在，比如：
+1. tidb1 先收到 read 并初始化了 cache 
+1. tidb2 收到 write 了加上了 intend lock
+1. tidb1 的 server info 由于某些原因失效了（比如由于网络故障没法续期被 ttl 清了）
+1. tidb2 去查 server info ，其中没有 tidb 1
+1. tidb1 网络恢复又加回来了
+1. tidb2 发起 invalidate cache 到其它节点（tidb1 发漏了）
 
 ## Benchmark
 ## FAQ
