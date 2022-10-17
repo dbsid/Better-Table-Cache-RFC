@@ -42,8 +42,8 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 ### 降低缓存表写操作的延迟
 增加 TiDB 之间直接通信机制，参考 ddl notification 机制 https://github.com/pingcap/tidb/issues/32485
 
-### 缓存表 point get 路径增加 fastpath 优化
-参考非 cache 表，auto-commit 打开的情况下， Point get 路径特殊优化，不拿 tso，使用maxint 作为 tso 去 tikv 读取数据
+### 「挑战型」缓存表 point get 路径增加 fastpath 优化
+参考非 cache 表，auto-commit 打开的情况下， Point get 路径特殊优化。探索缓存有效的情况下，不拿 tso 直接读缓存是否存在正确性问题已经性能提升幅度。
 
 ### 「挑战型」数据变更时实现 delta 更新，不需要全量更新
 缓存表数据变更时，探索新的数据广播和通信机制，缓存表数据更新时，实现 tidb peer 节点缓存表数据 delta 更新
@@ -54,7 +54,9 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 
 # TO-DO
 
-## 详细设计
+## 降低缓存表写操作的延迟详细设计
+
+### 保留方案
 
 当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
 1. 每次构建缓存数据时需要注册当前缓存数据元信息，并在内存中维护该 cache 最大的 read ts 。
@@ -64,6 +66,16 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 5. 写操作可以在最大 max read ts 之后完成提交，并清除所有缓存元数据。
 
 该策略只是对原有实现的补充，如果我们未能在 lease 之前得到最大 max read ts ，将会回退到原来的逻辑，即 lease 过期时也可以写入。
+
+## 激进方案
+
+当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
+1. 每次构建缓存数据时需要注册当前缓存数据元信息，并在内存中维护该 cache 最大的 read ts 。
+2. 发起写入时，按原逻辑先写入 intend lock ，然后向各节点发起 invalidate cache 请求。
+3. 各节点收到 invalidate 请求后，删除当前缓存数据，返回 response OK。
+4. 写操作完成提交，并清除所有缓存元数据。
+
+该策略只是对原有实现的补充，如果我们未能在 lease 之前得到收到所有 TiDB 节点的 response OK，将会回退到原来的逻辑，即 lease 过期时也可以写入。
 
 ## Benchmark
 ## FAQ
