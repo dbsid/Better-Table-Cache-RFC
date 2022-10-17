@@ -57,27 +57,19 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 ## 降低缓存表写操作的延迟详细设计
 
 当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
-1. 除了当前的 meta 表 table_cache_meta，需要新加一张表记录当前哪些 TiDB 记录了哪些缓存表，记录当前缓存了某个表 TiDB server_id 列表信息
-```
-CREATE TABLE mysql.table_cache_list (
-   tid int not null,
-   server_id in not null,
-   primary key(tid, server_id)
-);
-```
-2. 每次构建缓存数据时需要注册当前缓存数据元信息，除了内存中维护该 cache 最大的 read ts，还需要在 `table_cache_list` 表里注册当前 TiDB 的 server_id 和 tid 的关联记录。
-3. 发起写入时，按原逻辑先写入 intend lock ，然后向记录在案的 TiDB 列表各节点发起 invalidate cache 请求。
-4. 各节点收到 invalidate 请求后，删除当前缓存数据，返回 response OK。
-5. 写操作完成提交，并清除所有 `table_cache_meta/table_cache_list` 表缓存元数据。
 
-该策略只是对原有实现的补充，如果我们未能在 lease 之前得到收到所有 TiDB 节点的 response OK，将会回退到原来的逻辑，即 lease 过期时也可以写入。
+1. 每次 lock for read 时，除了更新现有实现中的锁信息外，还会注册当前 cache data 元信息，包含其所在节点信息；此外，在内存中记录各表缓存数据的 max read ts ，每次 try read from cache 命中时更新。
+2. 发起写入时，按原逻辑先写入 intend lock ，然后向该表 cache data 元信息中记录所有节点发起 invalidate cache 请求。
+3. 各节点收到 invalidate 请求后，取消该表正在进行异步加载任务并删除已有的缓存数据，返回 max read ts 。
+4. 写操作等待所以请求返回，取所有响应中最大的 max read ts 最为提前写入的等待条件，当其小于当前时间时即可提前上 write lock 开始写入；write lock 写入时清理失效 cache data 元信息。
 
-写操作根据注册的`(tid, server_id)`关联列表信息进行通知操作是为了防止以下情况：
-虽然 tidb 是在初始化 domain 时注册 server info 的，确实是先有 server info 才可能有读查询，但感觉不能保证有读查询后 server info 一定在，比如：
-1. tidb1 先收到 read 并初始化了 cache 
+该策略只是对原有实现的补充，如果在 lease 之前未能到达提前写入条件，lease 到期后仍将会按原来的逻辑加 write lock 并写入。
+
+该策略中，cache data 可用前需要先注册元信息，记录其节点信息，是为了保证 invalidate cache 请求不会遗漏，即所有 invalidate 成功返回后，不会再有从缓存读取数据的情况。这里我们不能用 tidb 启动时注册的 server info ，是因为其不能保证 cache data 生效后 server info 也一定有效，可能存在如下情况：
+1. tidb1 先收到 read 并初始化了 cache data
 2. tidb2 收到 write 了加上了 intend lock
 3. tidb1 的 server info 由于某些原因失效了（比如由于网络故障没法续期被 ttl 清了）
-4. tidb2 去查 server info ，其中没有 tidb 1
+4. tidb2 去查 server info ，其中没有 tidb1
 5. tidb1 网络恢复又加回来了
 6. tidb2 发起 invalidate cache 到其它节点（tidb1 发漏了）
 
