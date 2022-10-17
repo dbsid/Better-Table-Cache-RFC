@@ -56,25 +56,19 @@ sysbench `oltp_point_select` 场景，用上缓存表之后性能回退，因为
 
 ## 降低缓存表写操作的延迟详细设计
 
-### 保守方案
-
 当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
-1. 每次构建缓存数据时需要注册当前缓存数据元信息，并在内存中维护该 cache 最大的 read ts 。
-2. 发起写入时，按原逻辑先写入 intend lock ，然后向各节点发起 invalidate cache 请求。
-3. 各节点收到 invalidate 请求后，删除当前缓存数据，并将最终的 max read ts 更新到元信息。
-4. 写入节点 watch 缓存数据元信息变更，当所有 cache 都更新了 max read ts 后，取得最大 max read ts 。
-5. 写操作可以在最大 max read ts 之后完成提交，并清除所有缓存元数据。
-
-该策略只是对原有实现的补充，如果我们未能在 lease 之前得到最大 max read ts ，将会回退到原来的逻辑，即 lease 过期时也可以写入。
-
-## 激进方案
-
-当前 table cache 采用 lease 方式实现，在 read lock 的 lease 内不允许写操作，因而写延迟通常较高。为了降低写延迟，我们需要能在确保正确性的前提下提前写入。为此我们在现有实现基础上引入如下策略：
-1. table_cache_meta 表增加一列 ，记录当前 缓存了某个表 TiDB server_id 列表信息
-2. 每次构建缓存数据时需要注册当前缓存数据元信息，除了内存中维护该 cache 最大的 read ts，还需要再 meta 表里注册 当前 TiDB 的 server_id。
+1. 除了当前的 meta 表 table_cache_meta，需要新加一张表记录当前哪些 TiDB 记录了哪些缓存表 表增加一列 ，记录当前 缓存了某个表 TiDB server_id 列表信息
+```
+CREATE TABLE mysql.table_cache_list (
+   tid int not null,
+   server_id in not null,
+   primary key(tid, server_id)
+);
+```
+2. 每次构建缓存数据时需要注册当前缓存数据元信息，除了内存中维护该 cache 最大的 read ts，还需要在 `table_cache_list` 表里注册当前 TiDB 的 server_id 和 tid 的关联。
 3. 发起写入时，按原逻辑先写入 intend lock ，然后向记录在案的 TiDB 列表各节点发起 invalidate cache 请求。
 4. 各节点收到 invalidate 请求后，删除当前缓存数据，返回 response OK。
-5. 写操作完成提交，并清除所有缓存元数据。
+5. 写操作完成提交，并清除所有 `table_cache_meta/table_cache_list` 表缓存元数据。
 
 该策略只是对原有实现的补充，如果我们未能在 lease 之前得到收到所有 TiDB 节点的 response OK，将会回退到原来的逻辑，即 lease 过期时也可以写入。
 
