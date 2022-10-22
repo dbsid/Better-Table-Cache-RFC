@@ -8,7 +8,7 @@
 
 ## Code
 
-https://github.com/zyguan/tidb/tree/table-cache
+to be added
 
 ## 项目介绍
 提升缓存表在易用性、性能方面的用户体验
